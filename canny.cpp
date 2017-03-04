@@ -38,7 +38,7 @@
 #include <cstdint>
 #include <string.h>
 #include <stdlib.h>
-
+#include <iomanip>
 
 namespace keymolen {
 
@@ -66,6 +66,7 @@ namespace keymolen {
 								5, 12, 15, 12, 5, // * 1/159
 								4,  9, 12,  9, 4,
 								2,  4,  5,  4, 2 };
+
     const int Gaus5x5Div = 159;
 
 
@@ -73,19 +74,31 @@ namespace keymolen {
     Canny::Canny(int w, int h) :
         w_(w), h_(h), size_(w*h)
     {
-        buffer_ = (unsigned char*)calloc(w_ * h_, sizeof(unsigned char));
-		theta_ =  (unsigned char*)calloc(w_ * h_, sizeof(unsigned char));
+
+		/* 
+		//        blur                gradient/segment    local maxima    double threshold  hysterises  
+		//
+		//                                      /  G_  \
+		// src ->  dst  -> (Gx, Gy -> G_, t->s_)            G_(dst)    ->     d(dst)       ->  h(dst)    -> dst
+		// 
+		*/
+		 
+		 
+        G_ = (double*)calloc(w_ * h_, sizeof(double));
+		s_ =  (unsigned char*)calloc(w_ * h_, sizeof(unsigned char));
     }
 
     Canny::~Canny()
     {
-        free (buffer_);
-        free (theta_);
+        free (G_);
+        free (s_);
     }
+
 
     unsigned char * Canny::edges(unsigned char *dst, const unsigned char* src, 
 			Canny::NoiseFilter kernel_size, int weak_threshold, int strong_threshold)
     {
+
         int offset_xy = 1; //for kernel = 3
 		int8_t* kernel = (int8_t*)Gaus3x3;
 		int kernel_div = Gaus3x3Div;
@@ -97,12 +110,17 @@ namespace keymolen {
 			kernel_div = Gaus5x5Div;
 		}
 
-        //gaussian filter
-        for (int x = offset_xy; x < w_ - offset_xy; x++) {
-            for (int y = offset_xy; y < h_ - offset_xy; y++) {
-                int convolve = 0;
-                int k = 0;
+        //gaussian filter 
+		
+        for (int x = 0; x < w_ ; x++) {
+            for (int y = 0; y < h_; y++) {
                 int pos = x + (y * w_);
+                if (x<offset_xy || x>=(w_-offset_xy) || y<offset_xy || y>=(h_-offset_xy)) {
+					dst[pos] = src[pos];
+					continue;
+				}
+				int convolve = 0;
+                int k = 0;
                 for (int kx = -offset_xy; kx <= offset_xy; kx++) {
                     for (int ky = -offset_xy; ky <= offset_xy; ky++) {
                         convolve += (src[pos + (kx + (ky * w_))] * kernel[k]);
@@ -110,12 +128,11 @@ namespace keymolen {
                     }
                 }
 
-                buffer_[pos] = (unsigned char)((double)convolve / (double)kernel_div);
+                dst[pos] = (unsigned char)((double)convolve / (double)kernel_div);
             }
         }
 
-
-        //apply sobel kernels
+        //apply sobel kernels 
 		offset_xy = 1; //3x3
         for (int x = offset_xy; x < w_ - offset_xy; x++) {
             for (int y = offset_xy; y < h_ - offset_xy; y++) {
@@ -124,105 +141,130 @@ namespace keymolen {
                 int k = 0;
                 int src_pos = x + (y * w_);
 
-                for (int kx = -offset_xy; kx <= offset_xy; kx++) {
-                    for (int ky = -offset_xy; ky <= offset_xy; ky++) {
+                for (int ky = -offset_xy; ky <= offset_xy; ky++) {
+                	for (int kx = -offset_xy; kx <= offset_xy; kx++) {
 
-                        convolve_X += buffer_[src_pos + (kx + (ky * w_))] * Gx[k];
-                        convolve_Y += buffer_[src_pos + (kx + (ky * w_))] * Gy[k];
+                        convolve_X += dst[src_pos + (kx + (ky * w_))] * Gx[k];
+                        convolve_Y += dst[src_pos + (kx + (ky * w_))] * Gy[k];
 						
                         k++;
                     }
                 }
 
                 //gradient hypot & direction
-                dst[src_pos] = (unsigned char)((sqrt((convolve_X*convolve_X) + (convolve_Y*convolve_Y))) * 0.1768); // normalize at: 255/sqrt(2*((255*4)^2)) = 0.1768
-				double theta = atan2(convolve_Y, convolve_X); //radians. atan2 range: -PI,+PI, theta : 0 - 2PI
-				
-				theta = theta * (360 / (2*M_PI)); //degrees
-				if (theta < 0)
-					theta = 360 + theta;
+				int segment = 0;
 
-				int segment = ((int)((theta + 22.5) / 45)) % 8 % 4;
+				if (convolve_X == 0.0 || convolve_Y == 0.0)
+				{
+                	G_[src_pos] = 0;
+				}
+				else
+				{
+                	G_[src_pos] = ((std::sqrt((convolve_X*convolve_X) + (convolve_Y*convolve_Y))));
+					double theta = std::atan2(convolve_Y, convolve_X); //radians. atan2 range: -PI,+PI, theta : 0 - 2PI
+					theta = theta * (360.0 / (2.0*M_PI)); //degrees
 
-				theta_[src_pos] = (unsigned char)segment;
+					if ((theta <= 22.5 && theta >= -22.5) || (theta <= -157.5) || (theta >= 157.5))
+					{
+						segment = 1; // "-"
+					} 
+					else if ((theta > 22.5 && theta <= 67.5) || (theta > -157.5 && theta <= -112.5)) 
+					{
+						segment = 2; // "/"
+					}
+					else if ((theta > 67.5 && theta <= 112.5) || (theta >= -112.5 && theta < -67.5)) 
+					{
+						segment = 3; // "|"
+					}
+					else if ((theta >= -67.5 && theta < -22.5) || (theta > 112.5 && theta < 157.5)) 
+					{
+						segment = 4; // "\"
+					}
+					else
+					{
+						std::cout << "error " << theta  << std::endl;
+					}
+				}
+
+				s_[src_pos] = (unsigned char)segment;
 
 				//std::cout << convolve_Y << "," << convolve_X << ":"<< theta << " seg:" << segment << " " << std::endl;	
 			}
         }
-#if 1
-		//non maxima supression 
+
+				
+		//local maxima: non maxima suppression 
         for (int x = 1; x < w_ - 1; x++) {
             for (int y = 1; y < h_ - 1; y++) {
-                int src_pos = x + (y * w_);
-				int p = theta_[src_pos];
-				int g = dst[src_pos];
-				//3 2 1 
-				//0   0
-				//1 2 3
-				//std::cout << p << " ";
-				switch(p) {
-				case 0:
-					if ((/*theta_[src_pos+1] == p &&*/ dst[src_pos+1] > g) || 
-						(/*  theta_[src_pos-1] == p &&*/ dst[src_pos-1] > g))
-						 dst[src_pos] = 0;
-					break;
+                int pos = x + (y * w_);
+
+				switch(s_[pos]) {
+				
 				case 1:
-					if ((/* /theta_[src_pos+(w_-1)] == p &&*/ dst[src_pos+(w_-1)] > g) || 
-						(/*  /theta_[src_pos-(w_-1)] == p &&*/ dst[src_pos-(w_-1)] > g))
-						 dst[src_pos] = 0;
+					if ( G_[pos-1]>=G_[pos] || G_[pos+1]>=G_[pos])
+					{
+						G_[pos] = 0;
+					}
 					break;
 				case 2:
-					if ((/* /theta_[src_pos+w_] == p &&*/ dst[src_pos+w_] > g) || 
-						(/*  theta_[src_pos-w_] == p &&*/ dst[src_pos-w_] > g))
-						 dst[src_pos] = 0;
+					if ( G_[pos-(w_-1)]>=G_[pos] || G_[pos+(w_-1)]>=G_[pos])
+					{
+						G_[pos] = 0;
+					}
 					break;
 				case 3:
-					if ((/*  theta_[src_pos+(w_+1)] == p &&*/ dst[src_pos+(w_+1)] > g) || 
-						(/* theta_[src_pos-(w_+1)] == p &&*/ dst[src_pos-(w_+1)] > g))
-						 dst[src_pos] = 0;
+					if (  G_[pos-(w_)]>=G_[pos] || G_[pos+(w_)]>=G_[pos])
+					{
+						G_[pos] = 0;
+					}break;
+				case 4:
+					if ( G_[pos-(w_+1)]>=G_[pos] || G_[pos+(w_+1)]>=G_[pos])
+					{
+						G_[pos] = 0;
+					}break;
+				default:
+					G_[pos] = 0;
 					break;
 				}
 			}
 		}
-#endif
 
 		//double threshold
         for (int x = 0; x < w_; x++) {
             for (int y = 0; y < h_; y++) {
                 int src_pos = x + (y * w_);
-				if (dst[src_pos] > strong_threshold)
+				if (G_[src_pos] > strong_threshold)
 				{
-					buffer_[src_pos] = 255;
+					dst[src_pos] = 255;
 				}
-				else if(dst[src_pos] > weak_threshold)
+				else if(G_[src_pos] > weak_threshold)
 				{
-					buffer_[src_pos] = 100;
+					dst[src_pos] = 100;
 				}
 				else
 				{
-					buffer_[src_pos] = 0;
+					dst[src_pos] = 0;
 				}
 			}
 		}
 
-#if 1
         //edges with hysteresis
         for (int x = 1; x < w_ - 1; x++) {
             for (int y = 1; y < h_ - 1; y++) {
                 int src_pos = x + (y * w_);
-				if (buffer_[src_pos] == 255)
+				if (dst[src_pos] == 255)
 				{
 					dst[src_pos] = 255;
 				}
-				else if (buffer_[src_pos] == 100)
+				else if (dst[src_pos] == 100)
 				{
-					if (	buffer_[src_pos-1] == 255 ||
-							buffer_[src_pos-1] == 255 ||
-							buffer_[src_pos-1-w_] == 255 ||
-							buffer_[src_pos+1-w_] == 255 ||
-							buffer_[src_pos+w_] == 255 ||
-							buffer_[src_pos+w_-1] == 255 ||
-							buffer_[src_pos+w_+1] == 255)
+					if (	dst[src_pos-1] == 255 ||
+							dst[src_pos+1] == 255 ||
+							dst[src_pos-1-w_] == 255 ||
+							dst[src_pos+1-w_] == 255 ||
+							dst[src_pos+w_] == 255 ||
+							dst[src_pos+w_-1] == 255 ||
+							dst[src_pos+w_+1] == 255)
 					{
 						dst[src_pos] = 255;
 					}
@@ -238,9 +280,8 @@ namespace keymolen {
 
 			}
 		}
-#endif
 
-        return buffer_;
+		return dst;
     }
 
 

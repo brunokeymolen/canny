@@ -53,8 +53,8 @@ namespace keymolen {
         int w_;
         int h_;
         int size_;
-        unsigned char * buffer_;
-        unsigned char * theta_;
+        double * G_;
+        unsigned char* s_;
     };
 }
 

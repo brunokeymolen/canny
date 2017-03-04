@@ -149,14 +149,31 @@ void doTransform(std::string file_path)
 
 		char c = cv::waitKey(360000);
 		
-		if(c == 'h')
-			high_threshold -= 5;
+		if(c == 'h') {
+			if (high_threshold > 10)
+				high_threshold -= 5;
+			else
+				high_threshold -= 1;
+		}
 		if(c == 'H')
-			high_threshold += 5;
-		if(c == 'l')
-			low_threshold -= 5;
-		if(c == 'L')
-			low_threshold += 5;
+		{
+			if (high_threshold >= 10)
+				high_threshold += 5;
+			else
+				high_threshold += 1;
+		}
+		if(c == 'l') {
+			if (low_threshold > 10)
+				low_threshold -= 5;
+			else
+				low_threshold -= 1;
+		}
+		if(c == 'L') {
+			if (low_threshold >= 10)
+				low_threshold += 5;
+			else
+				low_threshold += 1;
+		}
 		if(c == '3')
 			filter = keymolen::Canny::NoiseFilter::Gaus3x3;
 		if(c == '5')
