@@ -1,4 +1,4 @@
-hough
+canny
 =====
 
 Canny edge detection in C++
