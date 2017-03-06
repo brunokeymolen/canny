@@ -83,15 +83,6 @@ namespace keymolen {
 // clang-format on
 
 Canny::Canny(int w, int h) : w_(w), h_(h), size_(w * h) {
-    // clang-format off
-        /* 
-        //        blur                gradient/segment    local maxima    double threshold  hysterises  
-        //
-        //                                      /  G_  \
-        // src ->  dst  -> (Gx, Gy -> G_, t->s_)            G_(dst)    ->     d(dst)       ->  h(dst)    -> dst
-        // 
-        */
-    // clang-format on
 
     G_ = (double*)calloc(w_ * h_, sizeof(double));
     M_ = (double*)calloc(w_ * h_, sizeof(double));
@@ -189,9 +180,6 @@ unsigned char* Canny::edges(unsigned char* dst, const unsigned char* src,
             }
 
             s_[src_pos] = (unsigned char)segment;
-
-            // std::cout << convolve_Y << "," << convolve_X << ":"<< theta << "
-            // seg:" << segment << " " << std::endl;
         }
     }
 
@@ -204,25 +192,26 @@ unsigned char* Canny::edges(unsigned char* dst, const unsigned char* src,
 
             switch (s_[pos]) {
                 case 1:
-                    if (G_[pos - 1] >= G_[pos] || G_[pos + 1] >= G_[pos]) {
+                    if (G_[pos - 1] >= G_[pos] || 
+                        G_[pos + 1] > G_[pos]) {
                         M_[pos] = 0;
                     }
                     break;
                 case 2:
                     if (G_[pos - (w_ - 1)] >= G_[pos] ||
-                        G_[pos + (w_ - 1)] >= G_[pos]) {
+                        G_[pos + (w_ - 1)] > G_[pos]) {
                         M_[pos] = 0;
                     }
                     break;
                 case 3:
                     if (G_[pos - (w_)] >= G_[pos] ||
-                        G_[pos + (w_)] >= G_[pos]) {
+                        G_[pos + (w_)] > G_[pos]) {
                         M_[pos] = 0;
                     }
                     break;
                 case 4:
                     if (G_[pos - (w_ + 1)] >= G_[pos] ||
-                        G_[pos + (w_ + 1)] >= G_[pos]) {
+                        G_[pos + (w_ + 1)] > G_[pos]) {
                         M_[pos] = 0;
                     }
                     break;

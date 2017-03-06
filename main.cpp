@@ -80,8 +80,8 @@ void usage(char* s) {
     fprintf(stderr, "   l: canny low threshold\n");
     fprintf(stderr, "   h: canny high threshold\n");
     fprintf(stderr,
-            "\nexample:  ./canny -s ./img/russell-crowe-robin-hood-arrow.jpg "
-            "-t 195\n");
+            "\nexample:  ./canny -s img/Valve_original.PNG "
+            "-l 30 -h 90\n");
     fprintf(stderr, "\n");
 }
 
